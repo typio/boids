@@ -103,9 +103,8 @@ const main = async () => {
       const rangeHolder = document.createElement('div')
       rangeHolder.className = "rangeHolder"
 
-      const sliderWidth = 160
       slider.addEventListener("input", ({ target }) => {
-        let newV = target?.value;
+        let newV = (target as HTMLInputElement).value;
         props.v = newV
         valueEl.innerText = newV
       })

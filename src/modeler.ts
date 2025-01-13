@@ -1,5 +1,5 @@
 import { Vec3 } from "gl-matrix";
-import { Boid, ModelParams, newBoid } from "./main";
+import { Boid, ModelParams } from "./main";
 
 const MAX_SPEED = 10, MIN_SPEED = 0.5, MAX_FORCE = 1;
 
@@ -25,7 +25,7 @@ const steer = (b: Boid, target: Vec3, maxF: number): Vec3 => {
     Vec3.normalize(s, s);
     Vec3.scale(s, s, maxF);
   }
-  return s;
+  return new Vec3(s);
 }
 
 const steerDir = (b: Boid, dir: Vec3, maxF: number): Vec3 => {
@@ -35,7 +35,7 @@ const steerDir = (b: Boid, dir: Vec3, maxF: number): Vec3 => {
     Vec3.normalize(s, s);
     Vec3.scale(s, s, maxF);
   }
-  return s;
+  return new Vec3(s);
 }
 
 export default class Modeler {

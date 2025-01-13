@@ -3,8 +3,6 @@ import { Boid } from "./main";
 
 const wgsl = String.raw;
 
-var first_run = true
-
 export class Camera {
   p: Vec3;
   target: Vec3;
@@ -87,12 +85,12 @@ export class Camera {
       this.far,
     );
 
-    return Mat4.multiply(Mat4.create(), projectionMatrix, viewMatrix);
+    return new Mat4(Mat4.multiply(Mat4.create(), projectionMatrix, viewMatrix));
   }
 
   getInverseViewProjectionMatrix(): Mat4 {
     const viewProjectionMatrix = this.getViewProjectionMatrix();
-    return Mat4.invert(Mat4.create(), viewProjectionMatrix);
+    return new Mat4(Mat4.invert(Mat4.create(), viewProjectionMatrix)!);
   }
 }
 
