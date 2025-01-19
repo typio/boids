@@ -10,8 +10,8 @@
 
   font-synthesis: none;
   text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+  -webkit-font-smooopen: antialiased;
+  -moz-osx-font-smooopen: grayscale;
 
   --slider-height: 20px;
   --slider-thumb-width: 1px;
@@ -112,6 +112,7 @@ input[type="range"] {
 }
 
 .controlsParent {
+  user-select: none;
   opacity: 0.2;
   position: absolute;
   right: -170px;
@@ -127,7 +128,7 @@ input[type="range"] {
   justify-content: end;
 }
 
-.controlsParent.thing {
+.controlsParent.open {
   opacity: 1;
   right: 0;
 }
@@ -160,4 +161,30 @@ input[type="range"] {
   width: 90px;
   margin-bottom: 8px;
   overflow-x: hidden;
+}
+
+.resetBtn {
+  transition:
+    all 0.5s,
+    color 0.2s,
+    background-color 0.2s;
+  outline: none;
+  border: 1px white solid;
+  width: 90px;
+  margin-right: 170px;
+  height: 32px;
+  background-color: transparent;
+  color: #fff;
+  font-size: 16px;
+  font-family: 'Inter';
+}
+
+.resetBtn.open {
+  margin-right: 0px;
+  width: 260px;
+}
+
+.resetBtn:active {
+  background-color: white;
+  color: #000;
 }

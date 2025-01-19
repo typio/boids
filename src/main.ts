@@ -13,6 +13,17 @@ interface Param {
   max?: number,
 }
 
+interface Range {
+  min: number,
+  max: number
+}
+
+export interface Bounds3 {
+  x: Range,
+  y: Range,
+  z: Range
+}
+
 export interface ModelParams {
   boids: Param,
   range: Param,
@@ -28,7 +39,11 @@ export interface Boid {
   target_v: Vec3
 }
 
-export const newBoid = (): Boid => {
+const randomInRange = (min: number, max: number) =>  {
+  return (max - min) * Math.random() + min
+}
+
+export const newBoid = (bounds: Bounds3): Boid => {
   const theta = Math.random() * Math.PI * 2
   const phi = Math.random() * Math.PI
   let v = new Vec3(
@@ -39,25 +54,42 @@ export const newBoid = (): Boid => {
 
   return {
     p: new Vec3(
-      40 * (Math.random() - 0.5),
-      20 + 5 * Math.random(),
-      40 * (Math.random() - 0.5),
+      randomInRange(bounds.x.min, bounds.x.max),
+      randomInRange(bounds.x.min, bounds.x.max),
+      randomInRange(bounds.x.min, bounds.x.max),
     ),
     v,
     target_v: new Vec3(v)
   } as Boid
 }
 
+const initialParams = {
+  boids: { label: "# Boids", v: 1000, min: 1, max: 5000 },
+  range: { label: "Range", v: 4 },
+  coh: { label: "Cohesion", v: 1 },
+  align: { label: "Alignment", v: 1 },
+  sep: { label: "Separation", v: 2 },
+  sepRange: { label: "Sep. Range", v: 0.5 },
+}
+
 const main = async () => {
   console.log("Start!");
 
-  let boids: Boid[] = Array.from({ length: 500 }).map(newBoid)
+  let boidBoundsW = 30
+  let boidBounds: Bounds3 = {
+    x: {min : -boidBoundsW, max: boidBoundsW},
+    y: {min : 5, max: 40},
+    z: {min : -boidBoundsW, max: boidBoundsW},
+  }
+  let boids: Boid[] = Array.from({ length: initialParams.boids.v }).map(() => newBoid(boidBounds))
 
   let screenSize = { w: window.innerWidth, h: window.innerHeight }
   let mousePos = { x: 0, y: 0 }
 
   const controlsParent = document.createElement("div");
   controlsParent.className = "controlsParent"
+  let resetBtn = document.createElement("button")
+  resetBtn.className = "resetBtn"
 
   window.addEventListener("resize", (_) => {
     screenSize = { w: window.innerWidth, h: window.innerHeight }
@@ -67,23 +99,20 @@ const main = async () => {
     mousePos = { x: e.screenX, y: e.screenY }
 
     if (mousePos.x + 160 > screenSize.w) {
-      controlsParent.classList.add("thing")
+      controlsParent.classList.add("open")
+      resetBtn.classList.add("open")
+
     }
 
     if (mousePos.x < screenSize.w - 250) {
-      controlsParent.classList.remove("thing")
+      controlsParent.classList.remove("open")
+      resetBtn.classList.remove("open")
+
     }
   })
 
   try {
-    let paramSliders: ModelParams = {
-      boids: { label: "# Boids", v: 500, min: 1, max: 5000 },
-      range: { label: "Range", v: 2 },
-      coh: { label: "Cohesion", v: 1 },
-      align: { label: "Alignment", v: 1 },
-      sep: { label: "Separation", v: 2 },
-      sepRange: { label: "Sep. Range", v: 1 },
-    }
+    let paramSliders: ModelParams = initialParams
 
     document.querySelector<HTMLDivElement>("#app")!.appendChild(controlsParent);
     for (const entry of Object.entries(paramSliders)) {
@@ -121,7 +150,15 @@ const main = async () => {
       rangeHolder.appendChild(valueEl);
     }
 
-    const modeler = new Modeler(paramSliders);
+    // resetBtn.style.marginRight = '170px'
+    resetBtn.innerText = "Reset"
+    resetBtn.addEventListener('click', () => {
+      paramSliders = initialParams
+      boids = Array.from({ length: initialParams.boids.v }).map(() => newBoid(boidBounds))
+    })
+    controlsParent.appendChild(resetBtn);
+
+    const modeler = new Modeler(paramSliders, boidBounds);
     const renderer = new Renderer(canvas);
     await renderer.init()
 
@@ -140,7 +177,7 @@ const main = async () => {
       if (boids.length > newBL) {
         boids = boids.slice(0, newBL)
       } else {
-        boids.push(...Array.from({ length: newBL - boids.length }).map(newBoid))
+        boids.push(...Array.from({ length: newBL - boids.length }).map(() => newBoid(boidBounds)))
       }
 
       modeler.step(

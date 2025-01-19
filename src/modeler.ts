@@ -1,12 +1,12 @@
 import { Vec3 } from "gl-matrix";
-import { Boid, ModelParams } from "./main";
+import { Boid, Bounds3, ModelParams } from "./main";
 
 const MAX_SPEED = 10, MIN_SPEED = 0.5, MAX_FORCE = 1;
 
 const zOrder = (p: Vec3, gs: number) => {
-  const x = Math.floor((p[0] + 1) * gs / 2);
-  const y = Math.floor((p[1] + 1) * gs / 2);
-  const z = Math.floor((p[2] + 1) * gs / 2);
+  const x = Math.floor((p.x + 1) * gs / 2);
+  const y = Math.floor((p.y + 1) * gs / 2);
+  const z = Math.floor((p.z + 1) * gs / 2);
   return z * gs * gs + y * gs + x;
 }
 
@@ -39,12 +39,14 @@ const steerDir = (b: Boid, dir: Vec3, maxF: number): Vec3 => {
 }
 
 export default class Modeler {
-  params: ModelParams;
+  params: ModelParams
+  bounds: Bounds3
 
   private rEst = 20;
 
-  constructor(sliderParams: ModelParams) {
+  constructor(sliderParams: ModelParams, bounds: Bounds3) {
     this.params = sliderParams
+    this.bounds = bounds
   }
 
   step = async (dt: number, boids: Boid[]) => {
@@ -52,49 +54,38 @@ export default class Modeler {
   }
 
   private avoidWalls(boid: Boid): Vec3 {
-    const turn = Vec3.create();
-    const bounds = {
-      xMin: -20, xMax: 20,
-      yMin: 5, yMax: 20,
-      zMin: -20, zMax: 20,
-    };
+    const bounds = this.bounds;
+    const pos = boid.p;
 
-    const wallForceMultiplier = 5.0;
-    const margin = 3.0;
+    const outsideMin = Vec3.fromValues(
+      bounds.x.min - pos[0],
+      bounds.y.min - pos[1],
+      bounds.z.min - pos[2]
+    );
+    const outsideMax = Vec3.fromValues(
+      pos[0] - bounds.x.max,
+      pos[1] - bounds.y.max,
+      pos[2] - bounds.z.max
+    );
 
-    boid.p[0] = Math.max(bounds.xMin + 0.1, Math.min(bounds.xMax - 0.1, boid.p[0]));
-    boid.p[1] = Math.max(bounds.yMin + 0.1, Math.min(bounds.yMax - 0.1, boid.p[1]));
-    boid.p[2] = Math.max(bounds.zMin + 0.1, Math.min(bounds.zMax - 0.1, boid.p[2]));
-
-    const points = [
-      Vec3.fromValues(boid.p[0], bounds.yMin, boid.p[2]), // bottom
-      Vec3.fromValues(boid.p[0], bounds.yMax, boid.p[2]), // top
-      Vec3.fromValues(bounds.xMin, boid.p[1], boid.p[2]), // left
-      Vec3.fromValues(bounds.xMax, boid.p[1], boid.p[2]), // right
-      Vec3.fromValues(boid.p[0], boid.p[1], bounds.zMin), // front
-      Vec3.fromValues(boid.p[0], boid.p[1], bounds.zMax)  // back
-    ];
-
-    for (const point of points) {
-      const d = Vec3.distance(boid.p, point);
-      if (d < margin) {
-        const away = Vec3.subtract(Vec3.create(), boid.p, point);
-        Vec3.normalize(away, away);
-
-        const force = wallForceMultiplier * Math.exp(-d / margin);
-        Vec3.scaleAndAdd(turn, turn, away, force);
-      }
+    const outside = Vec3.create();
+    for (let i = 0; i < 3; i++) {
+      outside[i] = Math.max(outsideMin[i], outsideMax[i]);
     }
 
-    const emergencyMargin = 0.5;
-    if (Math.abs(boid.p[0] - bounds.xMin) < emergencyMargin) Vec3.add(turn, turn, Vec3.fromValues(1, 0, 0));
-    if (Math.abs(boid.p[0] - bounds.xMax) < emergencyMargin) Vec3.add(turn, turn, Vec3.fromValues(-1, 0, 0));
-    if (Math.abs(boid.p[1] - bounds.yMin) < emergencyMargin) Vec3.add(turn, turn, Vec3.fromValues(0, 1, 0));
-    if (Math.abs(boid.p[1] - bounds.yMax) < emergencyMargin) Vec3.add(turn, turn, Vec3.fromValues(0, -1, 0));
-    if (Math.abs(boid.p[2] - bounds.zMin) < emergencyMargin) Vec3.add(turn, turn, Vec3.fromValues(0, 0, 1));
-    if (Math.abs(boid.p[2] - bounds.zMax) < emergencyMargin) Vec3.add(turn, turn, Vec3.fromValues(0, 0, -1));
+    if (Math.max(outside[0], outside[1], outside[2]) > 0) {
+      const force = Vec3.create();
+      for (let i = 0; i < 3; i++) {
+        if (outside[i] > 0) {
+          force[i] = -Math.sign(outsideMax[i] > 0 ? 1 : -1) * outside[i];
+        }
+      }
+      const res = new Vec3()
+      Vec3.scale(res, Vec3.normalize(Vec3.create(), force), MAX_FORCE);
+      return res
+    }
 
-    return turn;
+    return Vec3.create();
   }
 
   private update(bs: Boid[], dt: number) {
