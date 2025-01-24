@@ -1,7 +1,7 @@
 import "./style.css";
-import Renderer from "./renderer";
-import Modeler from "./modeler";
+import BoidEngine from "./BoidEngine";
 import { Vec3 } from "gl-matrix";
+import "./utils"
 
 const canvas = document.createElement("canvas");
 document.querySelector<HTMLDivElement>("#app")!.appendChild(canvas);
@@ -24,7 +24,7 @@ export interface Bounds3 {
   z: Range
 }
 
-export interface ModelParams {
+export interface SimParams {
   boids: Param,
   range: Param,
   coh: Param,
@@ -36,10 +36,9 @@ export interface ModelParams {
 export interface Boid {
   p: Vec3
   v: Vec3
-  target_v: Vec3
 }
 
-const randomInRange = (min: number, max: number) =>  {
+const randomInRange = (min: number, max: number) => {
   return (max - min) * Math.random() + min
 }
 
@@ -55,31 +54,30 @@ export const newBoid = (bounds: Bounds3): Boid => {
   return {
     p: new Vec3(
       randomInRange(bounds.x.min, bounds.x.max),
-      randomInRange(bounds.x.min, bounds.x.max),
-      randomInRange(bounds.x.min, bounds.x.max),
+      randomInRange(bounds.y.min, bounds.y.max),
+      randomInRange(bounds.z.min, bounds.z.max),
     ),
-    v,
-    target_v: new Vec3(v)
+    v
   } as Boid
 }
 
 const initialParams = {
-  boids: { label: "# Boids", v: 1000, min: 1, max: 5000 },
-  range: { label: "Range", v: 4 },
+  boids: { label: "# Boids", v: 1500, min: 1, max: 5000 },
+  range: { label: "Range", v: 5, min: 1, max: 100 },
   coh: { label: "Cohesion", v: 1 },
-  align: { label: "Alignment", v: 1 },
-  sep: { label: "Separation", v: 2 },
-  sepRange: { label: "Sep. Range", v: 0.5 },
+  align: { label: "Alignment", v: 2 },
+  sep: { label: "Separation", v: 5 },
+  sepRange: { label: "Sep. Range", v: 0.5, min: 0.1, max: 10 },
 }
 
 const main = async () => {
   console.log("Start!");
 
-  let boidBoundsW = 30
+  let boidBoundsW = 15
   let boidBounds: Bounds3 = {
-    x: {min : -boidBoundsW, max: boidBoundsW},
-    y: {min : 5, max: 40},
-    z: {min : -boidBoundsW, max: boidBoundsW},
+    x: { min: -boidBoundsW, max: boidBoundsW },
+    y: { min: 20, max: 40 },
+    z: { min: -boidBoundsW, max: boidBoundsW },
   }
   let boids: Boid[] = Array.from({ length: initialParams.boids.v }).map(() => newBoid(boidBounds))
 
@@ -101,18 +99,16 @@ const main = async () => {
     if (mousePos.x + 160 > screenSize.w) {
       controlsParent.classList.add("open")
       resetBtn.classList.add("open")
-
     }
 
     if (mousePos.x < screenSize.w - 250) {
       controlsParent.classList.remove("open")
       resetBtn.classList.remove("open")
-
     }
   })
 
   try {
-    let paramSliders: ModelParams = initialParams
+    let paramSliders: SimParams = initialParams
 
     document.querySelector<HTMLDivElement>("#app")!.appendChild(controlsParent);
     for (const entry of Object.entries(paramSliders)) {
@@ -150,7 +146,6 @@ const main = async () => {
       rangeHolder.appendChild(valueEl);
     }
 
-    // resetBtn.style.marginRight = '170px'
     resetBtn.innerText = "Reset"
     resetBtn.addEventListener('click', () => {
       paramSliders = initialParams
@@ -158,9 +153,8 @@ const main = async () => {
     })
     controlsParent.appendChild(resetBtn);
 
-    const modeler = new Modeler(paramSliders, boidBounds);
-    const renderer = new Renderer(canvas);
-    await renderer.init()
+    const engine = new BoidEngine(canvas, boids, paramSliders, boidBounds);
+    await engine.init()
 
     const fpsEl = document.createElement("p");
     fpsEl.className = "fps"
@@ -172,19 +166,7 @@ const main = async () => {
     const animate = (timestamp: number) => {
       const dt = (timestamp - lastTime) / 1e3;
 
-      // adjust boid number
-      const newBL = paramSliders.boids.v
-      if (boids.length > newBL) {
-        boids = boids.slice(0, newBL)
-      } else {
-        boids.push(...Array.from({ length: newBL - boids.length }).map(() => newBoid(boidBounds)))
-      }
-
-      modeler.step(
-        dt,
-        boids
-      );
-      renderer.render(timestamp - zero, boids);
+      engine.pass(dt);
 
       lastFPSs.push(1 / dt)
       if (lastFPSs.length > 20) { lastFPSs.shift() }
