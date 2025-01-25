@@ -156,9 +156,29 @@ const main = async () => {
     const engine = new BoidEngine(canvas, boids, paramSliders, boidBounds);
     await engine.init()
 
-    const fpsEl = document.createElement("p");
-    fpsEl.className = "fps"
-    document.querySelector<HTMLDivElement>("#app")!.appendChild(fpsEl);
+    const timesEl = document.createElement("ul");
+    timesEl.className = "times"
+    document.querySelector<HTMLDivElement>("#app")!.appendChild(timesEl);
+
+    const fpsEl = document.createElement("li");
+    timesEl.appendChild(fpsEl);
+
+    const timeNames = [
+      'cellIndex',
+      'sortCount',
+      'sortOffset',
+      'sort',
+      'gridBuild',
+      'simulation',
+      'render',
+    ]
+
+    const timeEls: HTMLLIElement[] = []
+    timeNames.forEach(_ => {
+      const timeEl = document.createElement("li");
+      timeEls.push(timeEl)
+      timesEl.appendChild(timeEl);
+    })
 
     const zero = performance.now();
     let lastTime = zero;
@@ -173,6 +193,16 @@ const main = async () => {
       fpsEl.innerText = `${Math.round(
         lastFPSs.reduce((prev, curr) => prev + curr, 0) / lastFPSs.length
       )} fps`;
+
+      let avg_times = engine.gpuTimes.map(times =>
+        times.reduce((acc, curr) =>
+          acc + curr
+          , 0) / Math.max(1, times.length)
+      )
+
+      avg_times.forEach((t, tI) => {
+        timeEls[tI].innerText = `${timeNames[tI]} pass: ${t > 0 ? Math.round(t) + 'µs' : '-'}`
+      })
 
       lastTime = timestamp;
       requestAnimationFrame((t) => animate(t));

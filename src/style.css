@@ -30,11 +30,12 @@ canvas {
   z-index: -1;
 }
 
-.fps {
-  opacity: .7;
-  width: 60px;
+.times {
+  width: 180px;
+  opacity: .5;
   margin: 0;
   padding: 10px;
+  list-style: none;
 }
 
 /* slider based on https://codepen.io/noahblon/pen/OyajvN */

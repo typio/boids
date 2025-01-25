@@ -8,9 +8,10 @@ import simWGSL from "./shaders/sim.wgsl?raw"
 export default class BoidEngine {
   canvas: HTMLCanvasElement;
   context: GPUCanvasContext;
-  adapter: GPUAdapter | undefined;
-  device: GPUDevice | undefined;
-  textureFormat: GPUTextureFormat | undefined;
+
+  adapter!: GPUAdapter;
+  device!: GPUDevice;
+  textureFormat!: GPUTextureFormat;
 
   camera: Camera;
   light: {
@@ -18,7 +19,7 @@ export default class BoidEngine {
     color: Vec3;
   }
 
-  private boids: Boid[]
+  #boids: Boid[]
 
   currentFrame: number;
 
@@ -33,41 +34,46 @@ export default class BoidEngine {
     }
   }
 
-  private uniformBuffer!: GPUBuffer
-  private uniformData!: Float32Array
-  private vertexBuffer!: GPUBuffer
-  private renderPipeline!: GPURenderPipeline
-  private depthTexture!: GPUTexture
-  private bindGroup!: GPUBindGroup
-  private bindGroupLayout!: GPUBindGroupLayout
-  private renderPassDescriptor!: GPURenderPassDescriptor
+  #uniformBuffer!: GPUBuffer
+  #uniformData!: Float32Array
+  #vertexBuffer!: GPUBuffer
+  #renderPipeline!: GPURenderPipeline
+  #depthTexture!: GPUTexture
+  #bindGroup!: GPUBindGroup
+  #bindGroupLayout!: GPUBindGroupLayout
+  #renderPassDescriptor!: GPURenderPassDescriptor
 
-  private cellIndexPipeline!: GPUComputePipeline
-  private sortPipelines!: {
+  #cellIndexPipeline!: GPUComputePipeline
+  #sortPipelines!: {
     count: GPUComputePipeline;
     offset: GPUComputePipeline;
     place: GPUComputePipeline;
   };
-  private buildGridPipeline!: GPUComputePipeline
-  private simBoidsPipeline!: GPUComputePipeline
+  #buildGridPipeline!: GPUComputePipeline
+  #simBoidsPipeline!: GPUComputePipeline
 
   // Data per boid
-  private boidBuffers!: { a: GPUBuffer, b: GPUBuffer };
-  private simParamsBuffer!: GPUBuffer;
+  #boidBuffers!: { a: GPUBuffer, b: GPUBuffer };
+  #simParamsBuffer!: GPUBuffer;
   // Mapping from boid index to cell #
-  private boidCellBuffer!: GPUBuffer;
-  private cellCountsBuffer!: GPUBuffer // Count of boids in each cell
-  private cellOffsetsBuffer!: GPUBuffer // Counts as offsets
+  #boidCellBuffer!: GPUBuffer;
+  #cellCountsBuffer!: GPUBuffer // Count of boids in each cell
+  #cellOffsetsBuffer!: GPUBuffer // Counts as offsets
   // Boid indices sorted by cell #
-  private cellSortedBoidsBuffer!: GPUBuffer
+  #cellSortedBoidsBuffer!: GPUBuffer
   // Cell (start, length) of cellSortedBoids
-  private cellsBuffer!: GPUBuffer
-  private gridParamsBuffer!: GPUBuffer
+  #cellsBuffer!: GPUBuffer
+  #gridParamsBuffer!: GPUBuffer
 
-  private cellIndexBindGroups!: { a: GPUBindGroup, b: GPUBindGroup };
-  private sortBindGroup!: GPUBindGroup;
-  private buildGridBindGroup!: GPUBindGroup;
-  private simBoidsBindGroups!: { a: GPUBindGroup, b: GPUBindGroup };
+  #cellIndexBindGroups!: { a: GPUBindGroup, b: GPUBindGroup };
+  #sortBindGroup!: GPUBindGroup;
+  #buildGridBindGroup!: GPUBindGroup;
+  #simBoidsBindGroups!: { a: GPUBindGroup, b: GPUBindGroup };
+
+  querySet!: any
+  resolveBuffer!: any
+  resultBuffer!: any
+  gpuTimes: number[][]
 
   constructor(canvas: HTMLCanvasElement, boids: Boid[], simParams: SimParams, boidBounds: Bounds3) {
     this.canvas = canvas;
@@ -87,7 +93,7 @@ export default class BoidEngine {
       color: Vec3.fromValues(1, 1, 1)
     }
 
-    this.boids = boids
+    this.#boids = boids
 
     this.currentFrame = 0
 
@@ -103,6 +109,8 @@ export default class BoidEngine {
         z: Math.ceil((this.boidBounds.z.max - this.boidBounds.z.min) / cellSize)
       }
     }
+
+    this.gpuTimes = Array.from({ length: 7 }).map(_ => [])
   }
 
   resize = () => {
@@ -124,15 +132,14 @@ export default class BoidEngine {
       };
       this.context.configure(canvasConfig);
 
-      if (this.depthTexture != undefined)
-        this.depthTexture.destroy();
+      if (this.#depthTexture != undefined)
+        this.#depthTexture.destroy();
 
-      this.depthTexture = this.device.createTexture({
+      this.#depthTexture = this.device.createTexture({
         size: [this.canvas.width, this.canvas.height],
         format: "depth24plus",
         usage: GPUTextureUsage.RENDER_ATTACHMENT,
       });
-
     }
 
     this.camera.aspect = this.canvas.width / this.canvas.height;
@@ -141,22 +148,35 @@ export default class BoidEngine {
   async init(): Promise<void> {
     const entry: GPU = navigator.gpu;
     if (!entry) {
-      throw new Error(
-        "Failed to connect to GPU, your device or browser might not support webGPU yet.",
-      );
+      const errMsg = "Failed to connect to GPU, your device or browser might not support WebGPU yet."
+      alert(errMsg)
+      throw new Error(errMsg)
     }
 
     this.adapter = ((a) => {
-      if (a === null) throw new Error("Failed to get adapter");
+      if (a === null) {
+        const errMsg = "Failed to get WebGPU adapter"
+        alert(errMsg)
+        throw new Error(errMsg)
+      }
       else return a;
     })(await entry.requestAdapter());
 
-    this.device = ((d) => {
-      if (d === null) throw new Error();
-      else return d;
-    })(await this.adapter.requestDevice());
+    const canTimestamp = this.adapter.features.has('timestamp-query');
+    this.device = await this.adapter.requestDevice({
+      requiredFeatures: [
+        ...(canTimestamp ? ['timestamp-query' as GPUFeatureName] : []),
+      ],
+    });
+    if (this.device === null) {
+      const errMsg = "Failed to get WebGPU device"
+      alert(errMsg)
+      throw new Error(errMsg)
+    }
     this.device.lost.then((info) => {
-      console.error(`WebGPU device was lost: ${info.message}`);
+      const errMsg = `WebGPU device was lost: ${info.message}`
+      alert(errMsg)
+      throw new Error(errMsg)
     });
 
     this.textureFormat = navigator.gpu.getPreferredCanvasFormat();
@@ -165,14 +185,14 @@ export default class BoidEngine {
     window.addEventListener("resize", this.resize);
 
     const uniformBufferSize = 16 * 4 + 16 * 4 + (3 * 4 + 4) + (3 * 4 + 4) + (3 * 4 + 4);
-    this.uniformBuffer = this.device!.createBuffer({
+    this.#uniformBuffer = this.device!.createBuffer({
       label: "uniformBuffer",
       size: uniformBufferSize,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
-    this.uniformData = new Float32Array(this.uniformBuffer.size / 4);
-    this.uniformData.set(this.camera.p, 32);
-    this.uniformData.set(this.light.p, 40);
+    this.#uniformData = new Float32Array(this.#uniformBuffer.size / 4);
+    this.#uniformData.set(this.camera.p, 32);
+    this.#uniformData.set(this.light.p, 40);
 
     const vertexData = new Float32Array([
       // Sky quad
@@ -205,19 +225,19 @@ export default class BoidEngine {
       0.05, -0.05, -0.1, 0.0, -1.0, 0.0,  // back right
     ]);
 
-    this.vertexBuffer = this.device!.createBuffer({
+    this.#vertexBuffer = this.device!.createBuffer({
       label: `vertex buffer`,
       size: vertexData.byteLength,
       usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
     });
-    this.device!.queue.writeBuffer(this.vertexBuffer, 0, vertexData);
+    this.device!.queue.writeBuffer(this.#vertexBuffer, 0, vertexData);
 
     const module = this.device!.createShaderModule({
       label: "main module",
       code: renderWGSL,
     });
 
-    this.bindGroupLayout = this.device!.createBindGroupLayout({
+    this.#bindGroupLayout = this.device!.createBindGroupLayout({
       entries: [
         {
           binding: 0,
@@ -227,19 +247,19 @@ export default class BoidEngine {
       ],
     });
 
-    this.bindGroup = this.device!.createBindGroup({
-      layout: this.bindGroupLayout,
+    this.#bindGroup = this.device!.createBindGroup({
+      layout: this.#bindGroupLayout,
       entries: [
         {
           binding: 0,
-          resource: { buffer: this.uniformBuffer },
+          resource: { buffer: this.#uniformBuffer },
         },
       ],
     });
 
-    this.renderPipeline = this.device!.createRenderPipeline({
+    this.#renderPipeline = this.device!.createRenderPipeline({
       layout: this.device!.createPipelineLayout({
-        bindGroupLayouts: [this.bindGroupLayout],
+        bindGroupLayouts: [this.#bindGroupLayout],
       }),
       vertex: {
         module,
@@ -285,7 +305,7 @@ export default class BoidEngine {
     });
 
     const boidBufferSize = this.simParams.boids.max! * 32;
-    this.boidBuffers = {
+    this.#boidBuffers = {
       a: this.device!.createBuffer({
         label: "boidBufferA",
         size: boidBufferSize,
@@ -299,25 +319,25 @@ export default class BoidEngine {
     }
 
     const simParamsBufferSize = 13 * 4
-    this.simParamsBuffer = this.device!.createBuffer({
+    this.#simParamsBuffer = this.device!.createBuffer({
       label: "simParamsBuffer",
       size: simParamsBufferSize,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
 
-    this.boidCellBuffer = this.device!.createBuffer({
+    this.#boidCellBuffer = this.device!.createBuffer({
       label: "boidCellBuffer",
       size: this.simParams.boids.max! * 4,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
     });
-    
-    this.cellSortedBoidsBuffer = this.device!.createBuffer({
+
+    this.#cellSortedBoidsBuffer = this.device!.createBuffer({
       label: "cellSortedBoidsBuffer",
       size: this.simParams.boids.max! * 4,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
     });
 
-    this.gridParamsBuffer = this.device!.createBuffer({
+    this.#gridParamsBuffer = this.device!.createBuffer({
       label: "gridParamsBuffer",
       size: (3 * 4) + (4),
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
@@ -327,10 +347,10 @@ export default class BoidEngine {
     const gridParamsData = new Float32Array([
       this.gridParams.gridDims.x, this.gridParams.gridDims.y, this.gridParams.gridDims.z, this.gridParams.cellSize
     ]);
-    this.device!.queue.writeBuffer(this.gridParamsBuffer, 0, gridParamsData);
+    this.device!.queue.writeBuffer(this.#gridParamsBuffer, 0, gridParamsData);
 
     // 1. Pipeline for computing cell indices
-    this.cellIndexPipeline = this.device!.createComputePipeline({
+    this.#cellIndexPipeline = this.device!.createComputePipeline({
       layout: this.device!.createPipelineLayout({
         bindGroupLayouts: [
           this.device!.createBindGroupLayout({
@@ -363,7 +383,7 @@ export default class BoidEngine {
       ],
     });
 
-    this.sortPipelines = {
+    this.#sortPipelines = {
       count: this.device!.createComputePipeline({
         layout: this.device!.createPipelineLayout({ bindGroupLayouts: [sortBindGroupLayout] }),
         compute: { module: computeModule, entryPoint: 'count_cells' }
@@ -378,7 +398,7 @@ export default class BoidEngine {
       })
     };
 
-    this.buildGridPipeline = this.device!.createComputePipeline({
+    this.#buildGridPipeline = this.device!.createComputePipeline({
       layout: this.device!.createPipelineLayout({
         bindGroupLayouts: [
           this.device!.createBindGroupLayout({
@@ -399,7 +419,7 @@ export default class BoidEngine {
       },
     });
 
-    this.simBoidsPipeline = this.device!.createComputePipeline({
+    this.#simBoidsPipeline = this.device!.createComputePipeline({
       layout: this.device!.createPipelineLayout({
         bindGroupLayouts: [
           this.device!.createBindGroupLayout({
@@ -427,39 +447,52 @@ export default class BoidEngine {
     });
 
     const boidsData = new Float32Array(this.simParams.boids.max! * 8); // 8 floats per boid (w/ padding)
-    this.boids.forEach((boid, i) => {
+    this.#boids.forEach((boid, i) => {
       boidsData.set([
         boid.p.x, boid.p.y, boid.p.z, 0.0,
         boid.v.x, boid.v.y, boid.v.z, 0.0,
       ], i * 8);
     });
-    this.device!.queue.writeBuffer(this.boidBuffers.a, 0, boidsData);
+    this.device!.queue.writeBuffer(this.#boidBuffers.a, 0, boidsData);
 
-    this.cellIndexBindGroups = {
+    this.#cellIndexBindGroups = {
       a: this.device!.createBindGroup({
-        layout: this.cellIndexPipeline.getBindGroupLayout(0),
+        layout: this.#cellIndexPipeline.getBindGroupLayout(0),
         entries: [
-          { binding: 0, resource: { buffer: this.boidBuffers.a } },
-          { binding: 1, resource: { buffer: this.boidCellBuffer } },
-          { binding: 2, resource: { buffer: this.cellSortedBoidsBuffer } },
-          { binding: 3, resource: { buffer: this.gridParamsBuffer } },
+          { binding: 0, resource: { buffer: this.#boidBuffers.a } },
+          { binding: 1, resource: { buffer: this.#boidCellBuffer } },
+          { binding: 2, resource: { buffer: this.#cellSortedBoidsBuffer } },
+          { binding: 3, resource: { buffer: this.#gridParamsBuffer } },
         ]
       }),
       b: this.device!.createBindGroup({
-        layout: this.cellIndexPipeline.getBindGroupLayout(0),
+        layout: this.#cellIndexPipeline.getBindGroupLayout(0),
         entries: [
-          { binding: 0, resource: { buffer: this.boidBuffers.b } },
-          { binding: 1, resource: { buffer: this.boidCellBuffer } },
-          { binding: 2, resource: { buffer: this.cellSortedBoidsBuffer } },
-          { binding: 3, resource: { buffer: this.gridParamsBuffer } },
+          { binding: 0, resource: { buffer: this.#boidBuffers.b } },
+          { binding: 1, resource: { buffer: this.#boidCellBuffer } },
+          { binding: 2, resource: { buffer: this.#cellSortedBoidsBuffer } },
+          { binding: 3, resource: { buffer: this.#gridParamsBuffer } },
         ]
       })
     };
 
-    this.createGridSystem()
+    this.#createGridSystem()
+
+    this.querySet = this.device.createQuerySet({
+      type: 'timestamp',
+      count: 14,
+    });
+    this.resolveBuffer = this.device.createBuffer({
+      size: this.querySet.count * 8,
+      usage: GPUBufferUsage.QUERY_RESOLVE | GPUBufferUsage.COPY_SRC,
+    });
+    this.resultBuffer = this.device.createBuffer({
+      size: this.resolveBuffer.size,
+      usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+    });
   }
 
-  private createGridSystem() {
+  #createGridSystem() {
     const cellSize = this.simParams.range.v;
     const newGridDims = {
       x: Math.ceil((this.boidBounds.x.max - this.boidBounds.x.min) / cellSize),
@@ -475,77 +508,77 @@ export default class BoidEngine {
     };
 
     this.device!.queue.writeBuffer(
-      this.gridParamsBuffer,
+      this.#gridParamsBuffer,
       0,
       new Float32Array([newGridDims.x, newGridDims.y, newGridDims.z, cellSize])
     );
 
-    if (this.cellCountsBuffer !== undefined)
-      this.cellCountsBuffer.destroy();
-    if (this.cellOffsetsBuffer !== undefined)
-      this.cellOffsetsBuffer.destroy();
-    if (this.cellsBuffer !== undefined)
-      this.cellsBuffer.destroy();
+    if (this.#cellCountsBuffer !== undefined)
+      this.#cellCountsBuffer.destroy();
+    if (this.#cellOffsetsBuffer !== undefined)
+      this.#cellOffsetsBuffer.destroy();
+    if (this.#cellsBuffer !== undefined)
+      this.#cellsBuffer.destroy();
 
-    this.cellCountsBuffer = this.device!.createBuffer({
+    this.#cellCountsBuffer = this.device!.createBuffer({
       label: "cellCountsBuffer",
       size: totalCells * 4,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });
 
-    this.cellOffsetsBuffer = this.device!.createBuffer({
+    this.#cellOffsetsBuffer = this.device!.createBuffer({
       label: "cellOffsetsBuffer",
       size: totalCells * 4,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });
 
-    this.cellsBuffer = this.device!.createBuffer({
+    this.#cellsBuffer = this.device!.createBuffer({
       label: "cellsBuffer",
       size: totalCells * 8,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });
 
-    this.sortBindGroup = this.device!.createBindGroup({
-      layout: this.sortPipelines.count.getBindGroupLayout(0),
+    this.#sortBindGroup = this.device!.createBindGroup({
+      layout: this.#sortPipelines.count.getBindGroupLayout(0),
       entries: [
-        { binding: 0, resource: { buffer: this.boidCellBuffer } },
-        { binding: 1, resource: { buffer: this.cellCountsBuffer } },
-        { binding: 2, resource: { buffer: this.cellOffsetsBuffer } },
-        { binding: 3, resource: { buffer: this.cellSortedBoidsBuffer } },
-        { binding: 4, resource: { buffer: this.gridParamsBuffer } },
+        { binding: 0, resource: { buffer: this.#boidCellBuffer } },
+        { binding: 1, resource: { buffer: this.#cellCountsBuffer } },
+        { binding: 2, resource: { buffer: this.#cellOffsetsBuffer } },
+        { binding: 3, resource: { buffer: this.#cellSortedBoidsBuffer } },
+        { binding: 4, resource: { buffer: this.#gridParamsBuffer } },
       ]
     });
 
-    this.buildGridBindGroup = this.device!.createBindGroup({
-      layout: this.buildGridPipeline.getBindGroupLayout(0),
+    this.#buildGridBindGroup = this.device!.createBindGroup({
+      layout: this.#buildGridPipeline.getBindGroupLayout(0),
       entries: [
-        { binding: 0, resource: { buffer: this.boidCellBuffer } },
-        { binding: 1, resource: { buffer: this.cellSortedBoidsBuffer } },
-        { binding: 2, resource: { buffer: this.cellsBuffer } },
+        { binding: 0, resource: { buffer: this.#boidCellBuffer } },
+        { binding: 1, resource: { buffer: this.#cellSortedBoidsBuffer } },
+        { binding: 2, resource: { buffer: this.#cellsBuffer } },
       ]
     });
 
-    this.simBoidsBindGroups = {
+    this.#simBoidsBindGroups = {
       a: this.device!.createBindGroup({
-        layout: this.simBoidsPipeline.getBindGroupLayout(0),
+        layout: this.#simBoidsPipeline.getBindGroupLayout(0),
         entries: [
-          { binding: 0, resource: { buffer: this.boidBuffers.a } },
-          { binding: 1, resource: { buffer: this.boidBuffers.b } },
-          { binding: 2, resource: { buffer: this.simParamsBuffer } },
-          { binding: 3, resource: { buffer: this.cellsBuffer } },
-          { binding: 4, resource: { buffer: this.cellSortedBoidsBuffer } },
-          { binding: 5, resource: { buffer: this.gridParamsBuffer } },
+          { binding: 0, resource: { buffer: this.#boidBuffers.a } },
+          { binding: 1, resource: { buffer: this.#boidBuffers.b } },
+          { binding: 2, resource: { buffer: this.#simParamsBuffer } },
+          { binding: 3, resource: { buffer: this.#cellsBuffer } },
+          { binding: 4, resource: { buffer: this.#cellSortedBoidsBuffer } },
+          { binding: 5, resource: { buffer: this.#gridParamsBuffer } },
         ]
       }),
       b: this.device!.createBindGroup({
-        layout: this.simBoidsPipeline.getBindGroupLayout(0),
+        layout: this.#simBoidsPipeline.getBindGroupLayout(0),
         entries: [
-          { binding: 0, resource: { buffer: this.boidBuffers.b } },
-          { binding: 1, resource: { buffer: this.boidBuffers.a } },
-          { binding: 2, resource: { buffer: this.simParamsBuffer } },
-          { binding: 3, resource: { buffer: this.cellsBuffer } },
-          { binding: 4, resource: { buffer: this.cellSortedBoidsBuffer } },
-          { binding: 5, resource: { buffer: this.gridParamsBuffer } },
+          { binding: 0, resource: { buffer: this.#boidBuffers.b } },
+          { binding: 1, resource: { buffer: this.#boidBuffers.a } },
+          { binding: 2, resource: { buffer: this.#simParamsBuffer } },
+          { binding: 3, resource: { buffer: this.#cellsBuffer } },
+          { binding: 4, resource: { buffer: this.#cellSortedBoidsBuffer } },
+          { binding: 5, resource: { buffer: this.#gridParamsBuffer } },
         ]
       })
     };
@@ -553,7 +586,7 @@ export default class BoidEngine {
 
   pass = async (dt: number) => {
     if (this.simParams.range.v !== this.gridParams.cellSize) {
-      this.createGridSystem();
+      this.#createGridSystem();
     }
 
     const encoder = this.device!.createCommandEncoder();
@@ -578,12 +611,18 @@ export default class BoidEngine {
       this.boidBounds.z.max,
       dt
     ]);
-    this.device!.queue.writeBuffer(this.simParamsBuffer, 0, simParams);
+    this.device!.queue.writeBuffer(this.#simParamsBuffer, 0, simParams);
 
     // 1. Compute cell indices of boids
-    const cellIndexPass = encoder.beginComputePass();
-    cellIndexPass.setPipeline(this.cellIndexPipeline);
-    cellIndexPass.setBindGroup(0, this.cellIndexBindGroups[this.currentFrame % 2 === 0 ? 'a' : 'b']);
+    const cellIndexPass = encoder.beginComputePass({
+      timestampWrites: {
+        querySet: this.querySet,
+        beginningOfPassWriteIndex: 0,
+        endOfPassWriteIndex: 1,
+      }
+    });
+    cellIndexPass.setPipeline(this.#cellIndexPipeline);
+    cellIndexPass.setBindGroup(0, this.#cellIndexBindGroups[this.currentFrame % 2 === 0 ? 'a' : 'b']);
     cellIndexPass.dispatchWorkgroups(numWorkgroups);
     cellIndexPass.end();
 
@@ -606,62 +645,97 @@ export default class BoidEngine {
     // Count cells
     // Clear cell counts
     this.device!.queue.writeBuffer(
-      this.cellCountsBuffer,
+      this.#cellCountsBuffer,
       0,
       new Uint32Array(totalCells).fill(0)
     );
-    const countPass = encoder.beginComputePass();
-    countPass.setBindGroup(0, this.sortBindGroup);
-    countPass.setPipeline(this.sortPipelines.count);
+    const countPass = encoder.beginComputePass({
+      timestampWrites: {
+        querySet: this.querySet,
+        beginningOfPassWriteIndex: 2,
+        endOfPassWriteIndex: 3,
+      }
+    });
+    countPass.setBindGroup(0, this.#sortBindGroup);
+    countPass.setPipeline(this.#sortPipelines.count);
     countPass.dispatchWorkgroups(numWorkgroups);
     countPass.end();
 
     // Compute offsets
-    const offsetPass = encoder.beginComputePass();
-    offsetPass.setBindGroup(0, this.sortBindGroup);
-    offsetPass.setPipeline(this.sortPipelines.offset);
+    const offsetPass = encoder.beginComputePass({
+      timestampWrites: {
+        querySet: this.querySet,
+        beginningOfPassWriteIndex: 4,
+        endOfPassWriteIndex: 5,
+      }
+    });
+    offsetPass.setBindGroup(0, this.#sortBindGroup);
+    offsetPass.setPipeline(this.#sortPipelines.offset);
     offsetPass.dispatchWorkgroups(Math.ceil(totalCells / 64));
     offsetPass.end();
 
     // Place indices
-    const placePass = encoder.beginComputePass();
-    placePass.setBindGroup(0, this.sortBindGroup);
-    placePass.setPipeline(this.sortPipelines.place);
+    const placePass = encoder.beginComputePass({
+      timestampWrites: {
+        querySet: this.querySet,
+        beginningOfPassWriteIndex: 6,
+        endOfPassWriteIndex: 7,
+      }
+    });
+    placePass.setBindGroup(0, this.#sortBindGroup);
+    placePass.setPipeline(this.#sortPipelines.place);
     placePass.dispatchWorkgroups(numWorkgroups);
     placePass.end();
 
 
     this.device!.queue.writeBuffer(
-      this.cellsBuffer,
+      this.#cellsBuffer,
       0,
       new Uint32Array(totalCells * 2).fill(0)
     ); // TODO: try removing this to see if it's needed for safety
-    const buildGridPass = encoder.beginComputePass();
-    buildGridPass.setPipeline(this.buildGridPipeline);
-    buildGridPass.setBindGroup(0, this.buildGridBindGroup);
+    const buildGridPass = encoder.beginComputePass({
+      timestampWrites: {
+        querySet: this.querySet,
+        beginningOfPassWriteIndex: 8,
+        endOfPassWriteIndex: 9,
+      }
+    });
+    buildGridPass.setPipeline(this.#buildGridPipeline);
+    buildGridPass.setBindGroup(0, this.#buildGridBindGroup);
     buildGridPass.dispatchWorkgroups(numWorkgroups);
     buildGridPass.end();
 
     // 4. Main boid simulation
-    const computePass = encoder.beginComputePass();
-    computePass.setPipeline(this.simBoidsPipeline);
-    computePass.setBindGroup(0, this.simBoidsBindGroups[this.currentFrame % 2 === 0 ? 'a' : 'b']);
-    computePass.dispatchWorkgroups(numWorkgroups);
-    computePass.end();
+    const simBoidsPass = encoder.beginComputePass({
+      timestampWrites: {
+        querySet: this.querySet,
+        beginningOfPassWriteIndex: 10,
+        endOfPassWriteIndex: 11,
+      }
+    });
+    simBoidsPass.setPipeline(this.#simBoidsPipeline);
+    simBoidsPass.setBindGroup(0, this.#simBoidsBindGroups[this.currentFrame % 2 === 0 ? 'a' : 'b']);
+    simBoidsPass.dispatchWorkgroups(numWorkgroups);
+    simBoidsPass.end();
 
     //
     // Render
     //
-    this.uniformData.set(this.camera.getViewProjectionMatrix() as Float32Array, 0);
-    this.uniformData.set(this.camera.getInverseViewProjectionMatrix() as Float32Array, 16);
-    this.uniformData.set(this.camera.target, 36);
-    this.device!.queue.writeBuffer(this.uniformBuffer, 0, this.uniformData);
+    this.#uniformData.set(this.camera.getViewProjectionMatrix() as Float32Array, 0);
+    this.#uniformData.set(this.camera.getInverseViewProjectionMatrix() as Float32Array, 16);
+    this.#uniformData.set(this.camera.target, 36);
+    this.device!.queue.writeBuffer(this.#uniformBuffer, 0, this.#uniformData);
 
-    this.renderPassDescriptor = {
+    this.#renderPassDescriptor = {
       colorAttachments: [],
+      timestampWrites: {
+        querySet: this.querySet,
+        beginningOfPassWriteIndex: 12,
+        endOfPassWriteIndex: 13,
+      },
     };
 
-    this.renderPassDescriptor.colorAttachments = [
+    this.#renderPassDescriptor.colorAttachments = [
       {
         view: this.context.getCurrentTexture().createView(),
         clearValue: [0, 0, 0, 1],
@@ -670,27 +744,48 @@ export default class BoidEngine {
       },
     ];
 
-    this.renderPassDescriptor.depthStencilAttachment = {
-      view: this.depthTexture.createView(),
+    this.#renderPassDescriptor.depthStencilAttachment = {
+      view: this.#depthTexture.createView(),
       depthClearValue: 1.0,
       depthLoadOp: "clear",
       depthStoreOp: "store",
     };
 
-    const renderPass = encoder.beginRenderPass(this.renderPassDescriptor);
+    const renderPass = encoder.beginRenderPass(this.#renderPassDescriptor);
 
-    renderPass.setPipeline(this.renderPipeline);
-    renderPass.setBindGroup(0, this.bindGroup);
+    renderPass.setPipeline(this.#renderPipeline);
+    renderPass.setBindGroup(0, this.#bindGroup);
 
-    renderPass.setVertexBuffer(0, this.vertexBuffer);
+    renderPass.setVertexBuffer(0, this.#vertexBuffer);
     renderPass.setVertexBuffer(1,
-      this.boidBuffers[this.currentFrame % 2 === 0 ? 'b' : 'a']
+      this.#boidBuffers[this.currentFrame % 2 === 0 ? 'b' : 'a']
     );
 
     renderPass.draw(6 + 12, this.simParams.boids.v)
     renderPass.end();
 
+    encoder.resolveQuerySet(this.querySet, 0, this.querySet.count, this.resolveBuffer, 0);
+    if (this.resultBuffer.mapState === 'unmapped') {
+      encoder.copyBufferToBuffer(this.resolveBuffer, 0, this.resultBuffer, 0, this.resultBuffer.size);
+    }
+
     this.device!.queue.submit([encoder.finish()]);
+
+    if (this.resultBuffer.mapState === 'unmapped')
+      this.resultBuffer.mapAsync(GPUMapMode.READ).then(() => {
+        const times = new BigInt64Array(this.resultBuffer.getMappedRange());
+        for (let i = 0; i < 7; i++) {
+          let t = Number(times[i + 1] - times[i]) / 1000;
+
+          if (t > 0) {
+            this.gpuTimes[i].push(t)
+            if (this.gpuTimes[i].length > 1) {
+              this.gpuTimes[i].shift()
+            }
+          }
+        }
+        this.resultBuffer.unmap();
+      });
 
     this.currentFrame += 1
   };
