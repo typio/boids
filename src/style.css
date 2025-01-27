@@ -27,15 +27,17 @@ body {
 
 canvas {
   position: absolute;
-  z-index: -1;
 }
 
 .times {
   width: 180px;
+  height: 200px;
   opacity: .5;
   margin: 0;
   padding: 10px;
   list-style: none;
+  pointer-events: none;
+  user-select: none;
 }
 
 /* slider based on https://codepen.io/noahblon/pen/OyajvN */

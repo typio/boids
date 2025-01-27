@@ -64,54 +64,15 @@ fn place_indices(@builtin(global_invocation_id) id: vec3<u32>) {
 
 @compute @workgroup_size(64)
 fn build_grid(@builtin(global_invocation_id) id: vec3<u32>) {
-    // if id.x >= arrayLength(&grid_sorted_boids) { return; }
-    // let i = id.x;
-    // let cell_idx = grid_boid_cells[grid_sorted_boids[i]];
-
-    // if i == 0u || grid_boid_cells[grid_sorted_boids[i - 1u]] != cell_idx {
-    //     grid_out[cell_idx].start = i;
-    // }
-    // if i == arrayLength(&grid_sorted_boids) - 1u || grid_boid_cells[grid_sorted_boids[i + 1u]] != cell_idx {
-    //     grid_out[cell_idx].count = i - grid_out[cell_idx].start + 1u;
-    // }
-
-    // Safe version
-
-    // Basic bounds check
     if id.x >= arrayLength(&grid_sorted_boids) { return; }
     let i = id.x;
-    
-    // Validate indices
-    let sorted_idx = grid_sorted_boids[i];
-    if sorted_idx >= arrayLength(&grid_boid_cells) { return; }
+    let cell_idx = grid_boid_cells[grid_sorted_boids[i]];
 
-    let cell_idx = grid_boid_cells[sorted_idx];
-    // Validate cell index against grid dimensions
-    let total_cells = arrayLength(&grid_out);
-    if cell_idx >= total_cells { return; }
-
-    // Safe previous cell check
-    let prev_cell = select(
-        grid_boid_cells[grid_sorted_boids[i - 1u]], cell_idx,  // Default to current if i == 0
-        i == 0u
-    );
-
-    // Safe next cell check
-    let is_last = i == arrayLength(&grid_sorted_boids) - 1u;
-    let next_cell = select(
-        grid_boid_cells[grid_sorted_boids[i + 1u]], cell_idx,  // Default to current if last
-        is_last
-    );
-
-    // Start of cell
-    if i == 0u || prev_cell != cell_idx {
-        grid_out[cell_idx].start = min(i, arrayLength(&grid_sorted_boids) - 1u);
+    if i == 0u || grid_boid_cells[grid_sorted_boids[i - 1u]] != cell_idx {
+        grid_out[cell_idx].start = i;
     }
-
-    // End of cell
-    if is_last || next_cell != cell_idx {
-        let count = i - grid_out[cell_idx].start + 1u;
-        grid_out[cell_idx].count = min(count, arrayLength(&grid_sorted_boids));
+    if i == arrayLength(&grid_sorted_boids) - 1u || grid_boid_cells[grid_sorted_boids[i + 1u]] != cell_idx {
+        grid_out[cell_idx].count = i - grid_out[cell_idx].start + 1u;
     }
 }
 

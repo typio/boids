@@ -62,7 +62,7 @@ export const newBoid = (bounds: Bounds3): Boid => {
 }
 
 const initialParams = {
-  boids: { label: "# Boids", v: 1500, min: 1, max: 5000 },
+  boids: { label: "# Boids", v: 2400, min: 1, max: 5000 },
   range: { label: "Range", v: 5, min: 1, max: 100 },
   coh: { label: "Cohesion", v: 1 },
   align: { label: "Alignment", v: 2 },
@@ -185,7 +185,6 @@ const main = async () => {
     let lastFPSs = []
     const animate = (timestamp: number) => {
       const dt = (timestamp - lastTime) / 1e3;
-
       engine.pass(dt);
 
       lastFPSs.push(1 / dt)
@@ -193,16 +192,6 @@ const main = async () => {
       fpsEl.innerText = `${Math.round(
         lastFPSs.reduce((prev, curr) => prev + curr, 0) / lastFPSs.length
       )} fps`;
-
-      let avg_times = engine.gpuTimes.map(times =>
-        times.reduce((acc, curr) =>
-          acc + curr
-          , 0) / Math.max(1, times.length)
-      )
-
-      avg_times.forEach((t, tI) => {
-        timeEls[tI].innerText = `${timeNames[tI]} pass: ${t > 0 ? Math.round(t) + 'µs' : '-'}`
-      })
 
       lastTime = timestamp;
       requestAnimationFrame((t) => animate(t));

@@ -70,11 +70,6 @@ export default class BoidEngine {
   #buildGridBindGroup!: GPUBindGroup;
   #simBoidsBindGroups!: { a: GPUBindGroup, b: GPUBindGroup };
 
-  querySet!: any
-  resolveBuffer!: any
-  resultBuffer!: any
-  gpuTimes: number[][]
-
   constructor(canvas: HTMLCanvasElement, boids: Boid[], simParams: SimParams, boidBounds: Bounds3) {
     this.canvas = canvas;
 
@@ -109,8 +104,6 @@ export default class BoidEngine {
         z: Math.ceil((this.boidBounds.z.max - this.boidBounds.z.min) / cellSize)
       }
     }
-
-    this.gpuTimes = Array.from({ length: 7 }).map(_ => [])
   }
 
   resize = () => {
@@ -162,12 +155,7 @@ export default class BoidEngine {
       else return a;
     })(await entry.requestAdapter());
 
-    const canTimestamp = this.adapter.features.has('timestamp-query');
-    this.device = await this.adapter.requestDevice({
-      requiredFeatures: [
-        ...(canTimestamp ? ['timestamp-query' as GPUFeatureName] : []),
-      ],
-    });
+    this.device = await this.adapter.requestDevice();
     if (this.device === null) {
       const errMsg = "Failed to get WebGPU device"
       alert(errMsg)
@@ -477,19 +465,6 @@ export default class BoidEngine {
     };
 
     this.#createGridSystem()
-
-    this.querySet = this.device.createQuerySet({
-      type: 'timestamp',
-      count: 14,
-    });
-    this.resolveBuffer = this.device.createBuffer({
-      size: this.querySet.count * 8,
-      usage: GPUBufferUsage.QUERY_RESOLVE | GPUBufferUsage.COPY_SRC,
-    });
-    this.resultBuffer = this.device.createBuffer({
-      size: this.resolveBuffer.size,
-      usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
-    });
   }
 
   #createGridSystem() {
@@ -614,33 +589,11 @@ export default class BoidEngine {
     this.device!.queue.writeBuffer(this.#simParamsBuffer, 0, simParams);
 
     // 1. Compute cell indices of boids
-    const cellIndexPass = encoder.beginComputePass({
-      timestampWrites: {
-        querySet: this.querySet,
-        beginningOfPassWriteIndex: 0,
-        endOfPassWriteIndex: 1,
-      }
-    });
+    const cellIndexPass = encoder.beginComputePass();
     cellIndexPass.setPipeline(this.#cellIndexPipeline);
     cellIndexPass.setBindGroup(0, this.#cellIndexBindGroups[this.currentFrame % 2 === 0 ? 'a' : 'b']);
     cellIndexPass.dispatchWorkgroups(numWorkgroups);
     cellIndexPass.end();
-
-    // const boidsStagingBuffer = this.device!.createBuffer({
-    //   size: this.boids.length * 8,
-    //   usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST
-    // });
-
-    // encoder.copyBufferToBuffer(
-    //   this.boidBuffers.a, 0,
-    //   boidsStagingBuffer, 0,
-    //   this.boids.length * 8
-    // );
-
-    // await boidsStagingBuffer.mapAsync(GPUMapMode.READ);
-    // const _boids = new Float32Array(boidsStagingBuffer.getMappedRange());
-    // console.log('p:', ..._boids.slice(0, 3)) 
-    // console.log('v:', ..._boids.slice(4, 7))
 
     // Count cells
     // Clear cell counts
@@ -649,70 +602,39 @@ export default class BoidEngine {
       0,
       new Uint32Array(totalCells).fill(0)
     );
-    const countPass = encoder.beginComputePass({
-      timestampWrites: {
-        querySet: this.querySet,
-        beginningOfPassWriteIndex: 2,
-        endOfPassWriteIndex: 3,
-      }
-    });
+    const countPass = encoder.beginComputePass();
     countPass.setBindGroup(0, this.#sortBindGroup);
     countPass.setPipeline(this.#sortPipelines.count);
     countPass.dispatchWorkgroups(numWorkgroups);
     countPass.end();
 
     // Compute offsets
-    const offsetPass = encoder.beginComputePass({
-      timestampWrites: {
-        querySet: this.querySet,
-        beginningOfPassWriteIndex: 4,
-        endOfPassWriteIndex: 5,
-      }
-    });
+    const offsetPass = encoder.beginComputePass();
     offsetPass.setBindGroup(0, this.#sortBindGroup);
     offsetPass.setPipeline(this.#sortPipelines.offset);
     offsetPass.dispatchWorkgroups(Math.ceil(totalCells / 64));
     offsetPass.end();
 
     // Place indices
-    const placePass = encoder.beginComputePass({
-      timestampWrites: {
-        querySet: this.querySet,
-        beginningOfPassWriteIndex: 6,
-        endOfPassWriteIndex: 7,
-      }
-    });
+    const placePass = encoder.beginComputePass();
     placePass.setBindGroup(0, this.#sortBindGroup);
     placePass.setPipeline(this.#sortPipelines.place);
     placePass.dispatchWorkgroups(numWorkgroups);
     placePass.end();
-
 
     this.device!.queue.writeBuffer(
       this.#cellsBuffer,
       0,
       new Uint32Array(totalCells * 2).fill(0)
     ); // TODO: try removing this to see if it's needed for safety
-    const buildGridPass = encoder.beginComputePass({
-      timestampWrites: {
-        querySet: this.querySet,
-        beginningOfPassWriteIndex: 8,
-        endOfPassWriteIndex: 9,
-      }
-    });
+    const buildGridPass = encoder.beginComputePass();
     buildGridPass.setPipeline(this.#buildGridPipeline);
     buildGridPass.setBindGroup(0, this.#buildGridBindGroup);
     buildGridPass.dispatchWorkgroups(numWorkgroups);
     buildGridPass.end();
 
     // 4. Main boid simulation
-    const simBoidsPass = encoder.beginComputePass({
-      timestampWrites: {
-        querySet: this.querySet,
-        beginningOfPassWriteIndex: 10,
-        endOfPassWriteIndex: 11,
-      }
-    });
+    const simBoidsPass = encoder.beginComputePass();
     simBoidsPass.setPipeline(this.#simBoidsPipeline);
     simBoidsPass.setBindGroup(0, this.#simBoidsBindGroups[this.currentFrame % 2 === 0 ? 'a' : 'b']);
     simBoidsPass.dispatchWorkgroups(numWorkgroups);
@@ -728,11 +650,6 @@ export default class BoidEngine {
 
     this.#renderPassDescriptor = {
       colorAttachments: [],
-      timestampWrites: {
-        querySet: this.querySet,
-        beginningOfPassWriteIndex: 12,
-        endOfPassWriteIndex: 13,
-      },
     };
 
     this.#renderPassDescriptor.colorAttachments = [
@@ -764,28 +681,7 @@ export default class BoidEngine {
     renderPass.draw(6 + 12, this.simParams.boids.v)
     renderPass.end();
 
-    encoder.resolveQuerySet(this.querySet, 0, this.querySet.count, this.resolveBuffer, 0);
-    if (this.resultBuffer.mapState === 'unmapped') {
-      encoder.copyBufferToBuffer(this.resolveBuffer, 0, this.resultBuffer, 0, this.resultBuffer.size);
-    }
-
     this.device!.queue.submit([encoder.finish()]);
-
-    if (this.resultBuffer.mapState === 'unmapped')
-      this.resultBuffer.mapAsync(GPUMapMode.READ).then(() => {
-        const times = new BigInt64Array(this.resultBuffer.getMappedRange());
-        for (let i = 0; i < 7; i++) {
-          let t = Number(times[i + 1] - times[i]) / 1000;
-
-          if (t > 0) {
-            this.gpuTimes[i].push(t)
-            if (this.gpuTimes[i].length > 1) {
-              this.gpuTimes[i].shift()
-            }
-          }
-        }
-        this.resultBuffer.unmap();
-      });
 
     this.currentFrame += 1
   };
